@@ -1,6 +1,6 @@
 import csv
 from pathlib import Path
-from .config import IP_MAC_CSV, REGISTERED_DEVICES_FILE
+from config import IP_MAC_CSV, REGISTERED_DEVICES_FILE
 
 class Storage:
     def __init__(self):
