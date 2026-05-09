@@ -87,3 +87,6 @@ class MQTTHandler:
     def connect(self):
         self.client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
         self.client.loop_start()
+    def on_disconnect(self, client, userdata, rc):
+        print(f"⚠️ MQTT Disconnected (Reason: {rc})")
+        self.is_connected = False
