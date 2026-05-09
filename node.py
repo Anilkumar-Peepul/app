@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 from aiocoap import Context, Message, GET, PUT, CON
-from .constants import COAP_GET_TIMEOUT, COAP_PUT_TIMEOUT
+from constants import COAP_GET_TIMEOUT, COAP_PUT_TIMEOUT, LIVE_PERIOD, SYNC_PERIOD
 
 class Node:
     def __init__(self, ipv6: str, uri: str, payload: str = ""):
