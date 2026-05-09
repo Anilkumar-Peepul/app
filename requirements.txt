@@ -1,0 +1,4 @@
+aiocoap>=0.4
+paho-mqtt>=2.1
+pydbus
+python-dotenv
