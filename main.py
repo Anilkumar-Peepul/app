@@ -1,11 +1,11 @@
 import asyncio
 import signal
-from .monitor import WiSunMonitor
-from .storage import Storage
-from .logger import PayloadLogger
-from .mqtt_handler import MQTTHandler
-from .config import GATEWAY_NAME
-from .constants import LIVE_PERIOD
+from monitor import WiSunMonitor
+from storage import Storage
+from logger import PayloadLogger
+from mqtt_handler import MQTTHandler
+from config import GATEWAY_NAME
+from constants import LIVE_PERIOD
 
 class WiSunGateway:
     def __init__(self):
