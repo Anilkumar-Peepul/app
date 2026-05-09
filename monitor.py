@@ -1,6 +1,6 @@
 import re
 from pydbus import SystemBus
-from .node import Node
+from node import Node
 
 class WiSunMonitor:
     def __init__(self):
