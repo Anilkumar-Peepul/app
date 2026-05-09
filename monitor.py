@@ -16,7 +16,7 @@ class WiSunMonitor:
 
     async def get_nodes(self):
         try:
-            nodes = await self.proxy.Nodes
+            nodes = self.proxy.Nodes
             connected = set()
             for node in nodes:
                 try:
