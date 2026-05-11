@@ -1,5 +1,5 @@
 {
-  "gateway_name": "CHANGE_ME",
+  "gateway_name": "CHANGE_ME2",
   "network_name": "PEEPUL_AGRI_01",
   "uart_port": "/dev/ttyAMA4",
   "environment":"staging"
