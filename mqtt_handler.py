@@ -137,7 +137,7 @@ class MQTTHandler:
 
         # Send acknowledgments
         if dev_list:
-            self.publish(self.motor_control_ack_topic, {"dev": dev_list})
+            self.publish("motor_control/ack", {"dev": dev_list})
         if dev_err_list:
             self.publish(self.motor_control_ack_topic, {"dev": dev_err_list})
 
