@@ -73,8 +73,8 @@ class MQTTHandler:
             self.handle_register(payload)
 
     async def handle_motor_control_message(self, message: dict):
-        """Handle bulk motor control commands and send ACK"""
-        print("Motor Control Command Received:", message)
+        """Handle bulk motor control commands (0=OFF, 1=ON) - Supports partial mtr_1 / mtr_2"""
+        print("🔧 Motor Control Command Received:", message)
         
         dev_list = []
         dev_err_list = []
@@ -85,11 +85,12 @@ class MQTTHandler:
             mtr_1 = device.get("mtr_1")
             mtr_2 = device.get("mtr_2")
 
+            # 1. Missing d_id
             if not d_id:
                 dev_err_list.append({"d_id": "N/A", "mtr_1": 8, "mtr_2": 8})
                 continue
 
-            # Get IP Address
+            # 2. Resolve IP
             if self.is_ipv6(d_id) and d_id in connected_nodes:
                 ip = d_id
             else:
@@ -100,58 +101,82 @@ class MQTTHandler:
                 dev_err_list.append({"d_id": d_id, "mtr_1": 8, "mtr_2": 8})
                 continue
 
-            # Validate motor values
+            # 3. Validate motor values (only 0 or 1 allowed)
             if mtr_1 is not None and mtr_1 not in [0, 1]:
-                dev_err_list.append({"d_id": d_id, "mtr_1": 9, "mtr_2": None})
+                dev_err_list.append({"d_id": d_id, "mtr_1": 9})
                 continue
             if mtr_2 is not None and mtr_2 not in [0, 1]:
-                dev_err_list.append({"d_id": d_id, "mtr_1": None, "mtr_2": 9})
+                dev_err_list.append({"d_id": d_id, "mtr_2": 9})
                 continue
 
-            # Prepare payload for node
+            # 4. Build payload - ONLY include motors that were sent
             mc_payload = {}
-            if mtr_1 is not None: mc_payload["mtr_1"] = mtr_1
-            if mtr_2 is not None: mc_payload["mtr_2"] = mtr_2
+            if mtr_1 is not None:
+                mc_payload["mtr_1"] = mtr_1
+            if mtr_2 is not None:
+                mc_payload["mtr_2"] = mtr_2
+
+            if not mc_payload:
+                continue
+
+            print(f"MTR CNTRL PAYLOAD for {d_id}: {mc_payload}")
 
             # Create CoAP task
-            print(f"MTR CNTRL PAYLOAD : {mc_payload}")
             node = Node(ipv6=ip, uri="motor_control", payload=json.dumps(mc_payload))
             tasks.append((d_id, mtr_1, mtr_2, node.put()))
 
+        # No valid tasks
+        if not tasks:
+            print("No valid motor control commands to process")
+            return
+
         # Execute all CoAP requests in parallel
-        if tasks:
-            results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
+        results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
 
-            for (d_id, m1, m2, _), data in zip(tasks, results):
-                ack = {"d_id": d_id}
-                print(f"MOTOR_CNTRL_ACK -> DEVICE : {d_id} , Data : {data}")
+        # Process results
+        for (d_id, orig_m1, orig_m2, _), data in zip(tasks, results):
+            ack = {"d_id": d_id}
 
-                if isinstance(data, Exception) or data is None:
-                    ack.update({"mtr_1": 10, "mtr_2": 10})
-                    dev_err_list.append(ack)
-                    continue
+            if isinstance(data, Exception) or data is None:
+                # Return error only for requested motors
+                if orig_m1 is not None:
+                    ack["mtr_1"] = 10
+                if orig_m2 is not None:
+                    ack["mtr_2"] = 10
+                dev_err_list.append(ack)
+                continue
 
-                if m1 is not None:
-                    ack["mtr_1"] = data.get("mtr_1", m1) if isinstance(data, dict) else m1
-                if m2 is not None:
-                    ack["mtr_2"] = data.get("mtr_2", m2) if isinstance(data, dict) else m2
+            try:
+                if isinstance(data, dict):
+                    # Return the value sent by device (no mapping needed for motor_control)
+                    if orig_m1 is not None:
+                        ack["mtr_1"] = data.get("mtr_1", orig_m1)
+                    if orig_m2 is not None:
+                        ack["mtr_2"] = data.get("mtr_2", orig_m2)
+                else:
+                    # Fallback: echo original values
+                    if orig_m1 is not None:
+                        ack["mtr_1"] = orig_m1
+                    if orig_m2 is not None:
+                        ack["mtr_2"] = orig_m2
 
                 dev_list.append(ack)
 
-        # === Send ACK to Cloud on correct topic ===
-        ack_payload = {}
-        if dev_list:
-            ack_payload["dev"] = dev_list
-        if dev_err_list:
-            if "dev" in ack_payload:
-                ack_payload["dev"].extend(dev_err_list)
-            else:
-                ack_payload["dev"] = dev_err_list
+            except Exception:
+                # Error case - only include requested motors
+                if orig_m1 is not None:
+                    ack["mtr_1"] = 10
+                if orig_m2 is not None:
+                    ack["mtr_2"] = 10
+                dev_err_list.append(ack)
 
-        if ack_payload:
-            self.publish("motor_control/ack", ack_payload)
-        else:
-            print("No devices processed for motor control")
+        # === Publish ACK ===
+        if dev_list:
+            self.publish("motor_control/ack", {"dev": dev_list})
+        
+        if dev_err_list:
+            self.publish("motor_control/ack", {"dev": dev_err_list})
+            
     async def handle_motor_mode_control_message(self, message: dict):
         """Handle Motor Mode Control (2=OFF, 3=ON) - Supports partial mtr_1 / mtr_2"""
         print("🔄 Motor Mode Control Command Received:", message)
