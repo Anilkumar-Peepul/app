@@ -29,7 +29,7 @@ class MQTTHandler:
         self.client.on_message = self.on_message
         # ACK Topics
         self.motor_control_ack_topic = "motor_control/ack"
-        self.motor_mode_ack_topic = "motor_mode/ack"           # or motor_mode_control/ack
+        self.motor_mode_ack_topic = "mode_change/ack"           # or motor_mode_control/ack
         self.device_sync_ack_topic = "sync/ack"
         self.device_config_ack_topic = "config/ack"
 
