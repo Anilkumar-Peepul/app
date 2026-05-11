@@ -3,6 +3,7 @@ from pydbus import SystemBus
 from node import Node
 
 class WiSunMonitor:
+    #Initialise the Systembus to get the Service running the wisun border router
     def __init__(self):
         self.bus = SystemBus()
         self.proxy = self.bus.get("com.silabs.Wisun.BorderRouter", "/com/silabs/Wisun/BorderRouter")
@@ -16,7 +17,7 @@ class WiSunMonitor:
 
     async def get_nodes(self):
         try:
-            nodes = await self.proxy.Nodes
+            nodes = self.proxy.Nodes
             connected = set()
             for node in nodes:
                 try:
