@@ -50,7 +50,6 @@ class MQTTHandler:
             return
 
         if "motor_control" in msg.topic:
-            print("Handle Motor Controlling")
             self.loop.create_task(self.handle_motor_control_message(payload))
         elif "mode_change" in msg.topic:
             self.loop.create_task(self.handle_mode_change(payload))
