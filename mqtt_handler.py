@@ -58,9 +58,54 @@ class MQTTHandler:
         elif "motor/config" in msg.topic:
             self.handle_register(payload)
 
-    async def handle_motor_control(self, msg):
-        print("🔧 Motor Control Command Received")
-        # Add your full logic here if needed
+    async def handle_motor_control_message(self, message):
+        dev_list, dev_err_list, tasks = [], [], []
+    
+        for device in message.get("dev", []):
+            d_id = device.get("d_id")
+            mtr_1 = device.get("mtr_1")
+            mtr_2 = device.get("mtr_2")
+    
+            if not d_id:
+                dev_err_list.append({"d_id": "N/A", "mtr_1": 8, "mtr_2": 8})
+                continue
+    
+            ip = d_id if self.is_ipv6(d_id) and d_id in connected_nodes else mac_to_ip.get(d_id)
+            if not ip:
+                dev_err_list.append({"d_id": d_id, "mtr_1": 8, "mtr_2": 8})
+                continue
+    
+            if mtr_1 is not None and mtr_1 not in [0, 1]:
+                dev_err_list.append({"d_id": d_id, "mtr_1": 9})
+                continue
+            if mtr_2 is not None and mtr_2 not in [0, 1]:
+                dev_err_list.append({"d_id": d_id, "mtr_2": 9})
+                continue
+    
+            mc_payload = {}
+            if mtr_1 is not None: mc_payload["mtr_1"] = mtr_1
+            if mtr_2 is not None: mc_payload["mtr_2"] = mtr_2
+    
+            tasks.append((d_id, mtr_1, mtr_2,
+                          Node(ip, "motor_control", json.dumps(mc_payload)).node_command()))
+    
+        if tasks:
+            results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
+            for (d_id, m1, m2, _), data in zip(tasks, results):
+                ack = {"d_id": d_id}
+                if data is None:
+                    ack.update({"mtr_1": 10, "mtr_2": 10})
+                    dev_err_list.append(ack)
+                    continue
+                if m1 is not None: ack["mtr_1"] = data.get("mtr_1", m1) if isinstance(data, dict) else m1
+                if m2 is not None: ack["mtr_2"] = data.get("mtr_2", m2) if isinstance(data, dict) else m2
+                dev_list.append(ack)
+    
+        if dev_list:
+            self.publish(self.motor_control_ack_topic, json.dumps({"dev": dev_list}))
+        if dev_err_list:
+            self.publish(self.motor_control_ack_topic, json.dumps({"dev": dev_err_list}))
+
 
     async def handle_mode_change(self, msg):
         print("🔄 Mode Change Command Received")
