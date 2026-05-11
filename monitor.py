@@ -18,7 +18,11 @@ class WiSunMonitor:
         ipv6 = re.sub("0000:", ":", ipv6)
         ipv6 = re.sub(":{2,}", "::", ipv6)
         return ipv6
-
+        
+    def is_ipv6(self, address):
+        ipv6_pattern = r'^([0-9a-fA-F]{1,4}:){1,7}([0-9a-fA-F]{1,4}|:)$|^([0-9a-fA-F]{1,4}:)*::$|^::$'
+        return bool(re.match(ipv6_pattern, address)) or '::' in address
+        
     async def get_nodes(self):
         global connected_nodes, gateway_name
         try:
