@@ -59,6 +59,7 @@ class MQTTHandler:
             self.handle_register(payload)
 
     async def handle_motor_control_message(self, message):
+        print("Handle Motor Controlling")
         dev_list, dev_err_list, tasks = [], [], []
     
         for device in message.get("dev", []):
