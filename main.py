@@ -6,7 +6,7 @@ from logger import PayloadLogger
 from mqtt_handler import MQTTHandler
 from config import GATEWAY_NAME
 from constants import LIVE_PERIOD, CONNECT_DELAY
-from node import node
+from node import Node
 class WiSunGateway:
     def __init__(self):
         self.storage = Storage() #initializes storage system (data directory, registered devices
