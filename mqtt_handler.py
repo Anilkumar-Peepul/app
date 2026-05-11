@@ -206,7 +206,7 @@ class MQTTHandler:
             
             for (d_id, orig_m1, orig_m2, _), data in zip(tasks, results):
                 ack = {"d_id": d_id}
-                print(f"MODE_CNTRL_ACK --> DEVICE : {d_id} , Data : {data}")
+                
 
                 if isinstance(data, Exception) or data is None:
                     ack.update({"mtr_1": 10, "mtr_2": 10})
@@ -234,6 +234,7 @@ class MQTTHandler:
 
         # Publish ACK(s) to correct topic
         if dev_list:
+            print(f"MODE_CNTRL_ACK --> {dev_list}")
             self.publish(self.motor_mode_ack_topic, {"dev": dev_list})
         if dev_err_list:
             self.publish(self.motor_mode_ack_topic, {"dev": dev_err_list})
