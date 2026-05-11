@@ -39,6 +39,7 @@ class WiSunGateway:
         await self.periodic_monitor()
 
 async def main():
+    print("Starting Wisun gateway")
     gateway = WiSunGateway()
     await gateway.start()
 
