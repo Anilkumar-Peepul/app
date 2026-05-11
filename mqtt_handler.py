@@ -70,7 +70,7 @@ class MQTTHandler:
             self.handle_register(payload)
 
     async def handle_motor_control_message(self, message: dict):
-        """Handle bulk motor control commands"""
+        """Handle bulk motor control commands and send per-device ACKs"""
         print("🔧 Motor Control Command Received:", message)
         
         dev_list = []
@@ -94,18 +94,26 @@ class MQTTHandler:
 
             if not ip:
                 print(f"❌ Device {d_id} not found")
-                dev_err_list.append({"d_id": d_id, "mtr_1": 8, "mtr_2": 8})
+                ack = {
+                    "d_id": d_id,
+                    "mtr_1": 8,
+                    "mtr_2": 8,
+                    "status": "failed"
+                }
+                self.send_motor_ack(d_id, ack)
                 continue
 
             # Validate motor values (0=OFF, 1=ON)
             if mtr_1 is not None and mtr_1 not in [0, 1]:
-                dev_err_list.append({"d_id": d_id, "mtr_1": 9})
+                ack = {"d_id": d_id, "mtr_1": 9, "status": "invalid"}
+                self.send_motor_ack(d_id, ack)
                 continue
             if mtr_2 is not None and mtr_2 not in [0, 1]:
-                dev_err_list.append({"d_id": d_id, "mtr_2": 9})
+                ack = {"d_id": d_id, "mtr_2": 9, "status": "invalid"}
+                self.send_motor_ack(d_id, ack)
                 continue
 
-            # Prepare payload
+            # Prepare payload for node
             mc_payload = {}
             if mtr_1 is not None:
                 mc_payload["mtr_1"] = mtr_1
@@ -114,18 +122,18 @@ class MQTTHandler:
 
             # Create CoAP task
             node = Node(ipv6=ip, uri="motor_control", payload=json.dumps(mc_payload))
-            tasks.append((d_id, mtr_1, mtr_2, node.put()))  # .put() is async
+            tasks.append((d_id, mtr_1, mtr_2, node.put()))
 
         # Execute all CoAP requests concurrently
         if tasks:
             results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
 
             for (d_id, m1, m2, _), data in zip(tasks, results):
-                ack = {"d_id": d_id}
+                ack = {"d_id": d_id, "status": "success"}
 
                 if isinstance(data, Exception) or data is None:
-                    ack.update({"mtr_1": 10, "mtr_2": 10})
-                    dev_err_list.append(ack)
+                    ack.update({"mtr_1": 10, "mtr_2": 10, "status": "failed"})
+                    self.send_motor_ack(d_id, ack)
                     continue
 
                 if m1 is not None:
@@ -133,13 +141,12 @@ class MQTTHandler:
                 if m2 is not None:
                     ack["mtr_2"] = data.get("mtr_2", m2) if isinstance(data, dict) else m2
 
-                dev_list.append(ack)
+                self.send_motor_ack(d_id, ack)
 
-        # Send acknowledgments
-        if dev_list:
-            self.publish("motor_control/ack", {"dev": dev_list})
-        if dev_err_list:
-            self.publish(self.motor_control_ack_topic, {"dev": dev_err_list})
+    def send_motor_ack(self, d_id: str, ack_payload: dict):
+        """Send ACK to specific per-device topic"""
+        topic = f"gateways/{d_id}/devices/motor_control/ack"
+        self.publish(topic, ack_payload)   # Note: we pass full topic now
 
     async def handle_mode_change(self, msg: dict):
         print("🔄 Mode Change Command Received:", msg)
@@ -156,8 +163,8 @@ class MQTTHandler:
             if ip:
                 self.storage.register_device(d_id, ip)
 
-    def publish(self, sub_topic: str, payload):
-        """Publish message to MQTT"""
+    def publish(self, topic_or_subtopic: str, payload):
+        """Publish message to MQTT - supports both full topic and sub-topic"""
         if not self.is_connected:
             return
         try:
@@ -166,10 +173,17 @@ class MQTTHandler:
                 payload["t_s"] = int(datetime.utcnow().timestamp() * 1000)
                 payload_str = json.dumps(payload)
             else:
-                payload_str = payload
+                payload_str = str(payload)
 
-            topic = f"gateways/{self.gateway_name}/devices/{sub_topic}"
-            self.client.publish(topic, payload_str, qos=0)
+            # Check if it's already a full topic (contains /)
+            if "/" in topic_or_subtopic and "gateways/" in topic_or_subtopic:
+                full_topic = topic_or_subtopic
+            else:
+                full_topic = f"gateways/{self.gateway_name}/devices/{topic_or_subtopic}"
+
+            self.client.publish(full_topic, payload_str, qos=0)
+            print(f"📤 ACK sent to {full_topic}")
+            
         except Exception as e:
             print(f"Publish error: {e}")
             self.logger.error(f"Publish error: {e}")
