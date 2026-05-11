@@ -178,22 +178,22 @@ class MQTTHandler:
                 dev_err_list.append({"d_id": d_id, "mtr_1": 8, "mtr_2": 8})
                 continue
 
-            # 3. Validate values (only allow 2 or 3 if provided)
+            # 3. Validate values (only if provided)
             if mtr_1 is not None and (not isinstance(mtr_1, int) or mtr_1 not in [2, 3]):
                 dev_err_list.append({"d_id": d_id, "mtr_1": 9})
                 continue
+
             if mtr_2 is not None and (not isinstance(mtr_2, int) or mtr_2 not in [2, 3]):
                 dev_err_list.append({"d_id": d_id, "mtr_2": 9})
                 continue
 
-            # 4. Build payload - ONLY include motors that were sent
+            # 4. Build payload - ONLY include motors that were sent in request
             mc_payload = {}
             if mtr_1 is not None:
                 mc_payload["mtr_1"] = 0 if mtr_1 == 2 else 1
             if mtr_2 is not None:
                 mc_payload["mtr_2"] = 0 if mtr_2 == 2 else 1
 
-            # If nothing valid to send
             if not mc_payload:
                 continue
 
@@ -201,11 +201,12 @@ class MQTTHandler:
             node = Node(ipv6=ip, uri="cm_change", payload=json.dumps(mc_payload))
             tasks.append((d_id, mtr_1, mtr_2, node.put()))
 
-        # Execute all CoAP requests concurrently
+        # No valid tasks
         if not tasks:
             print("No valid motor mode commands to process")
             return
 
+        # Execute all CoAP requests in parallel
         results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
 
         # Process results
@@ -213,7 +214,7 @@ class MQTTHandler:
             ack = {"d_id": d_id}
 
             if isinstance(data, Exception) or data is None:
-                # Return error codes only for the motors that were requested
+                # Return error only for requested motors
                 if orig_m1 is not None:
                     ack["mtr_1"] = 10
                 if orig_m2 is not None:
@@ -227,11 +228,12 @@ class MQTTHandler:
                     if orig_m1 is not None:
                         val = data.get("mtr_1")
                         ack["mtr_1"] = 2 if val == 0 else 3 if val == 1 else orig_m1
+
                     if orig_m2 is not None:
                         val = data.get("mtr_2")
                         ack["mtr_2"] = 2 if val == 0 else 3 if val == 1 else orig_m2
                 else:
-                    # Fallback: echo original values
+                    # Fallback: echo original requested values
                     if orig_m1 is not None:
                         ack["mtr_1"] = orig_m1
                     if orig_m2 is not None:
@@ -240,19 +242,19 @@ class MQTTHandler:
                 dev_list.append(ack)
 
             except Exception:
-                # Error case - only include requested motors
+                # Safety fallback on error
                 if orig_m1 is not None:
                     ack["mtr_1"] = 10
                 if orig_m2 is not None:
                     ack["mtr_2"] = 10
                 dev_err_list.append(ack)
 
-        # === Publish ACK - Only Once ===
+        # === Publish ACK(s) ===
         if dev_list:
             self.publish(self.motor_mode_ack_topic, {"dev": dev_list})
+        
         if dev_err_list:
             self.publish(self.motor_mode_ack_topic, {"dev": dev_err_list})
-
     # ====================== SYNC DEVICE ======================
     async def handle_sync_device(self, ip: str, d_id: str):
         """Sync motor status from device"""
