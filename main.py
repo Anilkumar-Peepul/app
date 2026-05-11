@@ -36,10 +36,11 @@ class WiSunGateway:
                         self.logger.process(data) #Process the Data
     
                         if self.mqtt.is_connected: #Check for MQTT Connected
-                            await self.mqtt.publish("live_data", data) #Publish the Live Data
-                            self.storage.save_offline(data) #Save in offline
+                            self.mqtt.publish("live_data", data) #Publish the Live Data
+                            #self.storage.save_offline(data) #Save in offline
                         else: #If MQTT Connection Failed
-                            self.storage.save_offline(data) # Save Offline
+                            print("Data: ", data)
+                            #self.storage.save_offline(data) # Save Offline
     
                         mac = data.get("d_id", "").upper() #Make UPPER CASE of Device MAC
                         if mac and mac not in self.storage.mac_to_ip: #Check for it existance in mac to Ip mappings
