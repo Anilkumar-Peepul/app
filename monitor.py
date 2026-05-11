@@ -3,32 +3,37 @@ from pydbus import SystemBus
 from node import Node
 
 class WiSunMonitor:
-    #Initialise the Systembus to get the Service running the wisun border router
     def __init__(self):
         self.bus = SystemBus()
         self.proxy = self.bus.get("com.silabs.Wisun.BorderRouter", "/com/silabs/Wisun/BorderRouter")
+        self.initial_mapping_done = False
 
     @staticmethod
-    def pretty_ipv6(raw: str) -> str:
-        ipv6 = ":".join(raw[i:i+4] for i in range(0, len(raw), 4))
-        ipv6 = re.sub(r"0000:", ":", ipv6)
-        ipv6 = re.sub(r":{2,}", "::", ipv6)
+    def slice_ipv6(source):
+        return [source[i: i + 4] for i in range(0, len(source), 4)]
+
+    @staticmethod
+    def pretty_ipv6(ipv6):
+        ipv6 = ":".join(WiSunMonitor.slice_ipv6(ipv6))
+        ipv6 = re.sub("0000:", ":", ipv6)
+        ipv6 = re.sub(":{2,}", "::", ipv6)
         return ipv6
 
     async def get_nodes(self):
+        global connected_nodes, gateway_name
         try:
-            nodes = self.proxy.Nodes
-            connected = set()
-            for node in nodes:
-                try:
-                    if isinstance(node[1], dict) and "ipv6" in node[1]:
-                        ipv6_hex = bytes(node[1]["ipv6"][1]).hex()
-                    else:
-                        ipv6_hex = bytes(node[0]).hex()
-                    connected.add(self.pretty_ipv6(ipv6_hex))
-                except:
-                    continue
-            return connected
+            nodes = await self.proxy.Nodes if "ipv6" in self.proxy.Nodes[0][1] else self.proxy.RoutingGraph
+            result = set()
+            if "ipv6" in self.proxy.Nodes[0][1]:
+                for node in nodes:
+                    ipv6 = bytes(node[1]["ipv6"][1]).hex()
+                    result.add(self.pretty_ipv6(ipv6))
+            else:
+                for node in nodes[1:]:
+                    ipv6 = bytes(node[0]).hex()
+                    result.add(self.pretty_ipv6(ipv6))
+            connected_nodes = result
+            return tuple(result)
         except Exception as e:
-            print(f"Error getting nodes: {e}")
-            return set()
+            print(f"WARNING: Exception error fetching nodes: {e}")
+            return []
