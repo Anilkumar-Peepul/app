@@ -7,7 +7,6 @@ from config import *
 from node import Node
 from storage import Storage
 from logger import PayloadLogger
-from monitor import monitor
 
 class MQTTHandler:
     def __init__(self, storage: Storage, logger: PayloadLogger):
