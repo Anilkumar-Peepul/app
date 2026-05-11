@@ -6,7 +6,6 @@
     "port": 8883,
     "username": "ss_user",
     "password": "123456",
-    "client_id": "CHANGE_ME2",
     "ca_cert": "/home/peepul/app/certs/stage_ca.crt"
   },
 
@@ -15,7 +14,6 @@
     "port": 8883,
     "username": "ss_user",
     "password": "123456",
-    "client_id": "CHANGE_ME2",
     "ca_cert": "/home/peepul/app/certs/live_ca.crt"
   }
 }
