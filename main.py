@@ -44,9 +44,9 @@ class WiSunGateway:
                         mac = data.get("d_id", "").upper() #Make UPPER CASE of Device MAC
                         if mac and mac not in self.storage.mac_to_ip: #Check for it existance in mac to Ip mappings
                             self.storage.save_ip_mac(ip, mac) #Stor IP to MAC for New Devices, 
-
-        except Exception as e:
-            self.logger.error(f"Monitor loop error: {e}")
+    
+            except Exception as e:
+                self.logger.error(f"Monitor loop error: {e}")
 
         await asyncio.sleep(LIVE_PERIOD)
 
