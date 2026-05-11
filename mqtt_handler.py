@@ -27,6 +27,11 @@ class MQTTHandler:
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
+        # ACK Topics
+        self.motor_control_ack_topic = "motor_control/ack"
+        self.motor_mode_ack_topic = "motor_mode/ack"           # or motor_mode_control/ack
+        self.device_sync_ack_topic = "sync/ack"
+        self.device_config_ack_topic = "config/ack"
 
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
@@ -144,13 +149,173 @@ class MQTTHandler:
             self.publish("motor_control/ack", ack_payload)
         else:
             print("No devices processed for motor control")
+    async def handle_motor_mode_control_message(self, message: dict):
+        """Handle Motor Mode Control (2 → OFF, 3 → ON style)"""
+        print("🔄 Motor Mode Control Command Received:", message)
+        
+        dev_list = []
+        dev_err_list = []
+        tasks = []
 
-    async def handle_mode_change(self, msg: dict):
-        print("🔄 Mode Change Command Received:", msg)
-        # Implement later if needed
+        for device in message.get("dev", []):
+            d_id = device.get("d_id")
+            mtr_1 = device.get("mtr_1")
+            mtr_2 = device.get("mtr_2")
 
-    async def handle_config(self, msg: dict):
-        print("⚙️ Config Command Received:", msg)
+            # 1. Missing d_id
+            if not d_id:
+                dev_err_list.append({"d_id": "N/A", "mtr_1": 8, "mtr_2": 8})
+                continue
+
+            # 2. Resolve IP
+            if self.is_ipv6(d_id) and d_id in connected_nodes:
+                ip = d_id
+            else:
+                ip = self.storage.mac_to_ip.get(d_id.upper())
+
+            if not ip:
+                dev_err_list.append({"d_id": d_id, "mtr_1": 8, "mtr_2": 8})
+                continue
+
+            # 3. Validate values (only 2 or 3 allowed)
+            if mtr_1 is not None and (not isinstance(mtr_1, int) or mtr_1 not in [2, 3]):
+                dev_err_list.append({"d_id": d_id, "mtr_1": 9, "mtr_2": None})
+                continue
+            if mtr_2 is not None and (not isinstance(mtr_2, int) or mtr_2 not in [2, 3]):
+                dev_err_list.append({"d_id": d_id, "mtr_1": None, "mtr_2": 9})
+                continue
+
+            # 4. Convert to node format: 2→0, 3→1
+            mc_payload = {}
+            send_m1 = 0 if mtr_1 == 2 else 1 if mtr_1 == 3 else None
+            send_m2 = 0 if mtr_2 == 2 else 1 if mtr_2 == 3 else None
+
+            if send_m1 is not None:
+                mc_payload["mtr_1"] = send_m1
+            if send_m2 is not None:
+                mc_payload["mtr_2"] = send_m2
+
+            # Create CoAP task
+            node = Node(ipv6=ip, uri="cm_change", payload=json.dumps(mc_payload))
+            tasks.append((d_id, mtr_1, mtr_2, node.put()))   # Use .put()
+
+        # Execute all tasks concurrently
+        if tasks:
+            results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
+
+            for (d_id, orig_m1, orig_m2, _), data in zip(tasks, results):
+                ack = {"d_id": d_id}
+
+                if isinstance(data, Exception) or data is None:
+                    ack.update({"mtr_1": 10, "mtr_2": 10})
+                    dev_err_list.append(ack)
+                    continue
+
+                try:
+                    if isinstance(data, dict):
+                        # Map back: 0→2, 1→3
+                        if orig_m1 is not None:
+                            val = data.get("mtr_1", 0 if orig_m1 == 2 else 1)
+                            ack["mtr_1"] = 2 if val == 0 else 3 if val == 1 else val
+                        if orig_m2 is not None:
+                            val = data.get("mtr_2", 0 if orig_m2 == 2 else 1)
+                            ack["mtr_2"] = 2 if val == 0 else 3 if val == 1 else val
+                    else:
+                        # Fallback
+                        if orig_m1 is not None: ack["mtr_1"] = orig_m1
+                        if orig_m2 is not None: ack["mtr_2"] = orig_m2
+
+                    dev_list.append(ack)
+                except Exception:
+                    ack.update({"mtr_1": 10, "mtr_2": 10})
+                    dev_err_list.append(ack)
+
+        # Publish ACK(s) to correct topic
+        if dev_list:
+            self.publish(self.motor_mode_ack_topic, {"dev": dev_list})
+        if dev_err_list:
+            self.publish(self.motor_mode_ack_topic, {"dev": dev_err_list})
+
+    # ====================== SYNC DEVICE ======================
+    async def handle_sync_device(self, ip: str, d_id: str):
+        """Sync motor status from device"""
+        try:
+            data = await Node(ip, "info/motor_status").get()   # Use .get() for reading
+
+            if data is None:
+                print(f"❌ No data received for sync {ip}")
+                return
+
+            ack_payload = {
+                "d_id": d_id,
+                **data  # merge device data
+            }
+
+            self.publish(self.device_sync_ack_topic, ack_payload)
+            print(f"✅ Sync successful for {d_id}")
+
+        except Exception as e:
+            self.logger.error(f"Sync error for {d_id}: {e}")
+            error_ack = {"d_id": d_id, "status": "failed", "error": 10}
+            self.publish(self.device_sync_ack_topic, error_ack)
+
+    # ====================== CONFIG HANDLER ======================
+    async def handle_config(self, ip: str, message: str):
+        """Handle device configuration update"""
+        sn = ""
+        d_id = "N/A"
+        try:
+            # Parse incoming message
+            try:
+                msg_dict = json.loads(message) if isinstance(message, str) else message
+                sn = msg_dict.get("sn", "")
+                d_id = msg_dict.get("d_id", "N/A")
+            except Exception as e:
+                print(f"❌ Invalid JSON in config: {e}")
+                raise
+
+            # Step 1: Start Update
+            state = await asyncio.wait_for(
+                Node(ip, "config", message).put(),
+                timeout=COAP_PUT_TIMEOUT
+            )
+
+            if not (state and isinstance(state, dict) and state.get("config_sts") == "UPDATE_STARTED"):
+                print(f"❌ Config update not started for {ip}")
+                self.publish(self.device_config_ack_topic, {"sn": sn, "d_id": d_id, "r": 0})
+                return
+
+            # Step 2: Wait and get final status
+            await asyncio.sleep(5)
+            data = await asyncio.wait_for(
+                Node(ip, "config").put(),
+                timeout=COAP_PUT_TIMEOUT
+            )
+
+            error_statuses = {"PARSE_FAILED", "MAC_MISMATCH", "VERIFY_FAILED",
+                              "ERASE_FAILED", "WRITE_FAILED", "UPDATE_PENDING", "PAYLOAD_TOO_LARGE"}
+
+            config_status = data.get("config_sts", "") if isinstance(data, dict) else ""
+
+            if config_status in error_statuses or not isinstance(data, dict):
+                print(f"❌ Config failed for {ip}: {config_status}")
+                ack = {"sn": sn, "d_id": d_id, "r": 0}
+            else:
+                print(f"✅ Config successful for {ip}")
+                ack = {
+                    "sn": sn,
+                    "d_id": data.get("d_id", d_id),
+                    "r": 1
+                }
+
+            self.publish(self.device_config_ack_topic, ack)
+
+        except asyncio.TimeoutError:
+            print(f"⏰ Timeout during config for {ip}")
+            self.publish(self.device_config_ack_topic, {"sn": sn, "d_id": d_id, "r": 0})
+        except Exception as e:
+            self.logger.error(f"Config error for {ip}: {e}")
+            self.publish(self.device_config_ack_topic, {"sn": sn, "d_id": d_id, "r": 0})
 
     def handle_register(self, msg: dict):
         d_id = msg.get("d_id")
