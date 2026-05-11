@@ -114,6 +114,7 @@ class MQTTHandler:
             if mtr_2 is not None: mc_payload["mtr_2"] = mtr_2
 
             # Create CoAP task
+            print(f"MTR CNTRL PAYLOAD : {mc_payload}")
             node = Node(ipv6=ip, uri="motor_control", payload=json.dumps(mc_payload))
             tasks.append((d_id, mtr_1, mtr_2, node.put()))
 
