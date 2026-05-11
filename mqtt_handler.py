@@ -122,6 +122,7 @@ class MQTTHandler:
 
             for (d_id, m1, m2, _), data in zip(tasks, results):
                 ack = {"d_id": d_id}
+                print(f"MOTOR_CNTRL_ACK -> DEVICE : {d_id} , Data : {data}")
 
                 if isinstance(data, Exception) or data is None:
                     ack.update({"mtr_1": 10, "mtr_2": 10})
@@ -202,7 +203,7 @@ class MQTTHandler:
         # Execute all tasks concurrently
         if tasks:
             results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
-
+            print(f"MODE_CNTRL_ACK --> DEVICE : {d_id} , Data : {data}")
             for (d_id, orig_m1, orig_m2, _), data in zip(tasks, results):
                 ack = {"d_id": d_id}
 
