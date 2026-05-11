@@ -47,6 +47,7 @@ class Node:
             return None
         text = resp.payload.decode().strip()
         try:
+            print("Data : ", text)
             return json.loads(text)
         except:
             return text
