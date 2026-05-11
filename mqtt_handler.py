@@ -31,7 +31,11 @@ class MQTTHandler:
             self.subscribe_topics()
         else:
             print(f"❌ MQTT Failed: {rc}")
-
+            
+    def is_ipv6(self, address):
+        ipv6_pattern = r'^([0-9a-fA-F]{1,4}:){1,7}([0-9a-fA-F]{1,4}|:)$|^([0-9a-fA-F]{1,4}:)*::$|^::$'
+        return bool(re.match(ipv6_pattern, address)) or '::' in address
+        
     def subscribe_topics(self):
         base = f"gateways/{self.gateway_name}/devices"
         topics = [
