@@ -47,6 +47,7 @@ class WiSunGateway:
     
             except Exception as e:
                 self.logger.error(f"Monitor loop error: {e}")
+            await asyncio.sleep(LIVE_PERIOD)
 
         await asyncio.sleep(LIVE_PERIOD)
 
