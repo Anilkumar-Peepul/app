@@ -23,7 +23,14 @@ with open(BASE_DIR / "config/config.json") as f:
     broker_config = json.load(f)
 
 #Get the details to which server need to connect
-ENV = gateway_config.get("environment", "staging")
+# ================== FIXES / IMPROVEMENTS ==================
+ENV = gateway_config.get("environment") or broker_config.get("environment", "staging")
+
+# Fallback safety
+if ENV not in broker_config:
+    print(f"⚠️ Environment '{ENV}' not found in config.json, falling back to staging")
+    ENV = "staging"
+
 #Configure broker environment staging / live
 mqtt_cfg = broker_config[ENV]
 
