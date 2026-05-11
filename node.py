@@ -19,6 +19,7 @@ class Node:
         return await self._request(PUT, timeout, CON)
     #General Request Function
     async def _request(self, code, timeout, mtype=None):
+        #Creating a UDP Socket for CoAP Request
         protocol = await Context.create_client_context()
         req = Message(code=code, uri=self._uri(), payload=self.payload)
         if mtype:
