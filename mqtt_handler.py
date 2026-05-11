@@ -87,7 +87,7 @@ class MQTTHandler:
             if mtr_2 is not None: mc_payload["mtr_2"] = mtr_2
     
             tasks.append((d_id, mtr_1, mtr_2,
-                          Node(ip, "motor_control", json.dumps(mc_payload)).node_command()))
+                          Node(ip, "motor_control", json.dumps(mc_payload)).PUT()))
     
         if tasks:
             results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
