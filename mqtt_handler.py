@@ -2,6 +2,7 @@ import asyncio
 import re
 import json
 import ssl
+from constants import COAP_PUT_TIMEOUT, COAP_GET_TIMEOUT
 import paho.mqtt.client as mqtt
 from datetime import datetime
 from config import *
@@ -73,7 +74,7 @@ class MQTTHandler:
 
     async def handle_motor_control_message(self, message: dict):
         """Handle bulk motor control commands and send ACK"""
-        print("🔧 Motor Control Command Received:", message)
+        print("Motor Control Command Received:", message)
         
         dev_list = []
         dev_err_list = []
@@ -163,12 +164,11 @@ class MQTTHandler:
             mtr_1 = device.get("mtr_1")
             mtr_2 = device.get("mtr_2")
 
-            # 1. Missing d_id
             if not d_id:
                 dev_err_list.append({"d_id": "N/A", "mtr_1": 8, "mtr_2": 8})
                 continue
 
-            # 2. Resolve IP
+            # Resolve IP
             if self.is_ipv6(d_id) and d_id in connected_nodes:
                 ip = d_id
             else:
@@ -178,16 +178,15 @@ class MQTTHandler:
                 dev_err_list.append({"d_id": d_id, "mtr_1": 8, "mtr_2": 8})
                 continue
 
-            # 3. Validate values (only if provided)
+            # Validate input values
             if mtr_1 is not None and (not isinstance(mtr_1, int) or mtr_1 not in [2, 3]):
                 dev_err_list.append({"d_id": d_id, "mtr_1": 9})
                 continue
-
             if mtr_2 is not None and (not isinstance(mtr_2, int) or mtr_2 not in [2, 3]):
                 dev_err_list.append({"d_id": d_id, "mtr_2": 9})
                 continue
 
-            # 4. Build payload - ONLY include motors that were sent in request
+            # Build payload - only include provided motors
             mc_payload = {}
             if mtr_1 is not None:
                 mc_payload["mtr_1"] = 0 if mtr_1 == 2 else 1
@@ -197,16 +196,13 @@ class MQTTHandler:
             if not mc_payload:
                 continue
 
-            # Create CoAP task
             node = Node(ipv6=ip, uri="cm_change", payload=json.dumps(mc_payload))
             tasks.append((d_id, mtr_1, mtr_2, node.put()))
 
-        # No valid tasks
         if not tasks:
             print("No valid motor mode commands to process")
-            return
+            #dev_err_list.append({"d_id": d_id, "mtr_1": 9, "mtr_2": 9})
 
-        # Execute all CoAP requests in parallel
         results = await asyncio.gather(*[t[3] for t in tasks], return_exceptions=True)
 
         # Process results
@@ -214,7 +210,6 @@ class MQTTHandler:
             ack = {"d_id": d_id}
 
             if isinstance(data, Exception) or data is None:
-                # Return error only for requested motors
                 if orig_m1 is not None:
                     ack["mtr_1"] = 10
                 if orig_m2 is not None:
@@ -224,16 +219,27 @@ class MQTTHandler:
 
             try:
                 if isinstance(data, dict):
-                    # Map response back: 0→2 (OFF), 1→3 (ON)
+                    # === NEW MAPPING LOGIC ===
                     if orig_m1 is not None:
                         val = data.get("mtr_1")
-                        ack["mtr_1"] = 2 if val == 0 else 3 if val == 1 else orig_m1
+                        if val == 0:
+                            ack["mtr_1"] = 2
+                        elif val == 1:
+                            ack["mtr_1"] = 3
+                        else:
+                            ack["mtr_1"] = val          # Keep any other value as-is (e.g. 4)
 
                     if orig_m2 is not None:
                         val = data.get("mtr_2")
-                        ack["mtr_2"] = 2 if val == 0 else 3 if val == 1 else orig_m2
+                        if val == 0:
+                            ack["mtr_2"] = 2
+                        elif val == 1:
+                            ack["mtr_2"] = 3
+                        else:
+                            ack["mtr_2"] = val          # Keep any other value as-is
+
                 else:
-                    # Fallback: echo original requested values
+                    # Fallback: echo original command values
                     if orig_m1 is not None:
                         ack["mtr_1"] = orig_m1
                     if orig_m2 is not None:
@@ -242,19 +248,18 @@ class MQTTHandler:
                 dev_list.append(ack)
 
             except Exception:
-                # Safety fallback on error
                 if orig_m1 is not None:
                     ack["mtr_1"] = 10
                 if orig_m2 is not None:
                     ack["mtr_2"] = 10
                 dev_err_list.append(ack)
 
-        # === Publish ACK(s) ===
+        # Publish ACK
         if dev_list:
             self.publish(self.motor_mode_ack_topic, {"dev": dev_list})
-        
         if dev_err_list:
             self.publish(self.motor_mode_ack_topic, {"dev": dev_err_list})
+            
     # ====================== SYNC DEVICE ======================
     async def handle_sync_device(self, ip: str, d_id: str):
         """Sync motor status from device"""
@@ -279,10 +284,12 @@ class MQTTHandler:
             self.publish(self.device_sync_ack_topic, error_ack)
 
     # ====================== CONFIG HANDLER ======================
-    async def handle_config(self, ip: str, message: str):
-        """Handle device configuration update"""
+    async def handle_config(self, message: dict):
+        """Handle device configuration update with proper IP resolution"""
         sn = ""
         d_id = "N/A"
+        ip = None
+
         try:
             # Parse incoming message
             try:
@@ -293,21 +300,37 @@ class MQTTHandler:
                 print(f"❌ Invalid JSON in config: {e}")
                 raise
 
+            if not d_id or d_id == "N/A":
+                print("❌ Missing d_id in config message")
+                self.publish(self.device_config_ack_topic, {"sn": sn, "d_id": d_id, "r": 0})
+                return
+
+            # === Resolve IP ===
+            if self.is_ipv6(d_id) and d_id in connected_nodes:
+                ip = d_id
+            else:
+                ip = self.storage.mac_to_ip.get(d_id.upper())
+
+            if not ip:
+                print(f"❌ Device {d_id} not found in mappings for config")
+                self.publish(self.device_config_ack_topic, {"sn": sn, "d_id": d_id, "r": 0})
+                return
+
             # Step 1: Start Update
             state = await asyncio.wait_for(
-                Node(ip, "config", message).put(),
+                Node(ip, "config", json.dumps(msg_dict) if isinstance(message, dict) else message).put(),
                 timeout=COAP_PUT_TIMEOUT
             )
 
             if not (state and isinstance(state, dict) and state.get("config_sts") == "UPDATE_STARTED"):
-                print(f"❌ Config update not started for {ip}")
+                print(f"❌ Config update not started for {d_id}")
                 self.publish(self.device_config_ack_topic, {"sn": sn, "d_id": d_id, "r": 0})
                 return
 
             # Step 2: Wait and get final status
             await asyncio.sleep(5)
             data = await asyncio.wait_for(
-                Node(ip, "config").put(),
+                Node(ip, "config").get(),          # Use .get() for status check
                 timeout=COAP_PUT_TIMEOUT
             )
 
@@ -317,10 +340,10 @@ class MQTTHandler:
             config_status = data.get("config_sts", "") if isinstance(data, dict) else ""
 
             if config_status in error_statuses or not isinstance(data, dict):
-                print(f"❌ Config failed for {ip}: {config_status}")
+                print(f"❌ Config failed for {d_id}: {config_status}")
                 ack = {"sn": sn, "d_id": d_id, "r": 0}
             else:
-                print(f"✅ Config successful for {ip}")
+                print(f"✅ Config successful for {d_id}")
                 ack = {
                     "sn": sn,
                     "d_id": data.get("d_id", d_id),
@@ -330,12 +353,11 @@ class MQTTHandler:
             self.publish(self.device_config_ack_topic, ack)
 
         except asyncio.TimeoutError:
-            print(f"⏰ Timeout during config for {ip}")
+            print(f"⏰ Timeout during config for {d_id}")
             self.publish(self.device_config_ack_topic, {"sn": sn, "d_id": d_id, "r": 0})
         except Exception as e:
-            self.logger.error(f"Config error for {ip}: {e}")
+            self.logger.error(f"Config error for {d_id}: {e}")
             self.publish(self.device_config_ack_topic, {"sn": sn, "d_id": d_id, "r": 0})
-
     def handle_register(self, msg: dict):
         d_id = msg.get("d_id")
         if d_id:
