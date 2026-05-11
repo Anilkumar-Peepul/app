@@ -71,7 +71,7 @@ class MQTTHandler:
                 dev_err_list.append({"d_id": "N/A", "mtr_1": 8, "mtr_2": 8})
                 continue
     
-            ip = d_id if Node.is_ipv6(d_id) and d_id in connected_nodes else mac_to_ip.get(d_id)
+            ip = d_id if Node().is_ipv6(d_id) and d_id in connected_nodes else mac_to_ip.get(d_id)
             if not ip:
                 dev_err_list.append({"d_id": d_id, "mtr_1": 8, "mtr_2": 8})
                 continue
