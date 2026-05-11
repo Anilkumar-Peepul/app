@@ -57,7 +57,7 @@ class WiSunGateway:
 
         try:
             # Async connect to MQTT broker
-            await self.mqtt.connect()
+            self.mqtt.connect()
         except Exception as e:
             self.logger.error(f"MQTT connection failed: {e}")
 
