@@ -15,7 +15,12 @@ class PayloadLogger:
             "vif": 20, "via": 15, "m_f_dr": 0.2, "m_f_ol": 0.3,
             "m_a_dr": 0.3, "m_a_ol": 0.4
         }
-
+    def error(self, message: str):
+        # simple error logging
+        print(f"[ERROR] {message}")
+        # optionally also append to combined_log.csv
+        with open("logs/errors.log", "a") as f:
+            f.write(message + "\n")
     def setup_logger(self):
         self.logger = logging.getLogger("wisun_gateway")
         self.logger.setLevel(logging.INFO)
